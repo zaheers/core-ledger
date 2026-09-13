@@ -141,7 +141,50 @@ class Ledger:
                     self.post(interest_event)
 
 # ==========================================
-# 3. THE EXECUTION SCRIPT
+# 3. REPORTING ENGINE
+# ==========================================
+def print_account_statement(ledger, account_id, up_to_day):
+    """Generates a formatted customer-facing statement for posted transactions."""
+    print(f"\n{ '='*25 } OFFICIAL ACCOUNT STATEMENT { '='*25 }")
+    print(f"Account Number: {account_id}")
+    print(f"Statement Period: Day 1 to Day {up_to_day}")
+    print("-" * 92)
+    print(f"{'Post Day':<10} | {'Val Day':<9} | {'Ref ID':<10} | {'Description':<32} | {'Amount':<10} | {'Balance':<10}")
+    print("-" * 92)
+    
+    # Filter for posted events only (exclude AUTH holds)
+    posted_events = [
+        e for e in ledger.event_stream 
+        if e.account_id == account_id 
+        and e.system_day <= up_to_day 
+        and e.type != 'AUTH'
+    ]
+    
+    # Sort chronologically by the day the bank processed them (system_day)
+    posted_events.sort(key=lambda x: (x.system_day, x.value_date))
+    
+    running_balance = Decimal('0')
+    
+    for e in posted_events:
+        # Additions
+        if e.type in ('CREDIT', 'INTEREST', 'REVERSAL'):
+            amt_str = f"+{e.amount}"
+            running_balance += e.amount
+        # Deductions
+        elif e.type in ('DEBIT', 'SETTLE', 'FEE'):
+            amt_str = f"-{e.amount}"
+            running_balance -= e.amount
+            
+        quantized_bal = ledger._quantize(running_balance, account_id)
+        print(f"Day {e.system_day:<6} | Day {e.value_date:<5} | {e.ref_id:<10} | {e.description[:32]:<32} | {amt_str:<10} | {quantized_bal:<10}")
+    
+    print("-" * 92)
+    final_balance = ledger.get_ledger_balance(account_id, up_to_day, up_to_day)
+    print(f"ENDING CLEARED BALANCE: {final_balance} {account_id[:3]}")
+    print(f"{ '='*78 }\n")
+
+# ==========================================
+# 4. THE EXECUTION SCRIPT
 # ==========================================
 def run_simulation():
     ledger = Ledger()
@@ -209,5 +252,11 @@ def run_simulation():
                 print(f"  - {err}")
             ledger.daily_errors.clear()
 
-# Execute the simulation
-run_simulation()
+    return ledger
+
+# Execute the simulation and save the state
+ledger_instance = run_simulation()
+
+# Print the customer statement for ACC-001 up to Day 6
+print_account_statement(ledger_instance, 'ACC-001', 6)
+print_account_statement(ledger_instance, 'ACC-002', 6)
